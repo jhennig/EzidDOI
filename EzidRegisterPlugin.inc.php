@@ -12,6 +12,9 @@
  *
  * @brief ezid export/registration plugin.
  */
+ 
+//To make use of a getAllPublishedArticlesInRange()
+import('lib.pkp.classes.db.DBResultRange');
 
 
 if (!class_exists('CrossRefExportPlugin')) { // Bug #7848
@@ -255,7 +258,13 @@ class EzidRegisterPlugin extends CrossRefExportPlugin {
       $input .= "datacite.title: " . $object->getLocalizedTitle() . PHP_EOL;
       $input .= "datacite.publisher: " . $journal->getSetting('publisherInstitution') . PHP_EOL;
       $input .= "datacite.publicationyear: " . date('Y', strtotime($object->getDatePublished())) . PHP_EOL;
-      $input .= "datacite.resourcetype: " . $object->getLocalizedData('type'). PHP_EOL;
+      /**
+       * Custom: Make all resourcetype Type "Text" to resolve resource type problems with ezid
+       */
+      $input .= "datacite.resourcetype: Text" . PHP_EOL;
+      //$input .= "datacite.resourcetype: " . $object->getLocalizedData('type'). PHP_EOL;
+      
+
       if ($object->getData('ezid::registeredDoi')) {
         $webServiceRequest = new WebServiceRequest(EZID_API_CRUD_URL . $object->getData('ezid::registeredDoi'), $input, 'POST');
         $expectedResponse = EZID_API_RESPONSE_OK;
@@ -454,7 +463,12 @@ class EzidRegisterPlugin extends CrossRefExportPlugin {
 
     // Retrieve all published articles.
     $this->registerDaoHook('PublishedArticleDAO');
-    $allArticles = $this->getAllPublishedArticles($journal);
+     $rangeInfo = Handler::getRangeInfo('articles');
+     //$this->pre($rangeInfo);
+
+     $totalArticles = $this->getPublishedArticleCountByJournalId($journal);
+   
+    $allArticles = $this->getAllPublishedArticlesInRange($journal,  $rangeInfo);
 
     // Filter only articles that have a DOI assigned.
     $articles = array();
@@ -468,10 +482,11 @@ class EzidRegisterPlugin extends CrossRefExportPlugin {
     unset($allArticles);
 
     // Paginate articles.
-    $totalArticles = count($articles);
-    $rangeInfo = Handler::getRangeInfo('articles');
+   
+  //  $rangeInfo = Handler::getRangeInfo('articles');
+   
     if ($rangeInfo->isValid()) {
-      $articles = array_slice($articles, $rangeInfo->getCount() * ($rangeInfo->getPage()-1), $rangeInfo->getCount());
+    //  $articles = array_slice($articles, $rangeInfo->getCount() * ($rangeInfo->getPage()-1), $rangeInfo->getCount());
     }
 
     // Retrieve article data.
@@ -494,6 +509,73 @@ class EzidRegisterPlugin extends CrossRefExportPlugin {
     $templateMgr->assign_by_ref('articles', $iterator);
     $templateMgr->display($this->getTemplatePath() . 'articles.tpl');
   }
+
+
+function getPublishedArticleCountByJournalId(&$journal){
+
+  $publishedArticleDao =& DAORegistry::getDAO('PublishedArticleDAO'); /* @var $publishedArticleDao PublishedArticleDAO */
+
+  return $publishedArticleDao->getPublishedArticleCountByJournalId($journal->getId());
+
+}
+
+function getAllPublishedArticlesInRange(&$journal, $rangeInfo=null) {
+  
+
+      $publishedArticleDao =& DAORegistry::getDAO('PublishedArticleDAO'); /* @var $publishedArticleDao PublishedArticleDAO */
+      $reverse = false;
+      $articleIterator = $publishedArticleDao->getPublishedArticlesByJournalId($journal->getId() , $rangeInfo , $reverse);
+    
+       // Return articles from published issues only.
+    $articles = array();
+    while ($article = $articleIterator->next()) {
+      // Retrieve issue
+      $issue = $this->_getArticleIssue($article, $journal);
+
+      // Check whether the issue is published.
+      if ($issue->getPublished()) {
+        $articles[] = $article;
+        unset($article);
+      }
+    }
+    unset($articleIterator);
+
+
+    return $articles;
+  }
+
+
+  /**
+	Custom code below
+  **/
+
+  function pre($s){
+      echo "<pre>";
+      print_r($s);
+      echo "</pre>";
+  }
+
+  function generateCallTrace()
+{
+    $e = new Exception();
+    $trace = explode("\n", $e->getTraceAsString());
+    // reverse array to make steps line up chronologically
+    $trace = array_reverse($trace);
+    array_shift($trace); // remove {main}
+    array_pop($trace); // remove call to this method
+    $length = count($trace);
+    $result = array();
+   
+    for ($i = 0; $i < $length; $i++)
+    {
+        $result[] = ($i + 1)  . ')' . substr($trace[$i], strpos($trace[$i], ' ')); // replace '#someNum' with '$i)', set the right ordering
+    }
+   
+    return "\t" . implode("\n\t", $result);
+}
+ 
+
+
 }
 
 ?>
